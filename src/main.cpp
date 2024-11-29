@@ -154,7 +154,7 @@ void loop() {
     status += (digitalRead(pinHeat1) == HIGH ? "h1:on ": "h1:off ");
     status += (digitalRead(pinHeat2) == HIGH ? "h2:on ": "h2:off ");
   
-    mqttClient.publish("homecom/status", status.c_str());
+    mqttClient.publish("homecom/status", status.c_str(), true);
   }
 }
 
