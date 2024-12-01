@@ -5,7 +5,8 @@
 
 #include <ElegantOTA.h>
 #include <AccelStepper.h>
-
+#include <fan.h>
+#include <flap.h>
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 WiFiUDP udpClient;
@@ -19,15 +20,15 @@ const uint8_t pinIN1 = D7;
 const uint8_t pinIN2 = D8;
 const uint8_t pinIN3 = D9;
 const uint8_t pinIN4 = D10;
-// Stepper pins entered in sequence IN1-IN3-IN2-IN4 for proper step sequence
-AccelStepper stepper(AccelStepper::FULL4WIRE, pinIN1, pinIN3, pinIN2, pinIN4);
 
 long lastStatusMsgTime = 0;
-bool fanShutdownInProgress = false;
-long fanShutdownStartTime = 0;
 
 void callback(char* topic, byte* message, unsigned int length);
 void setup_wifi() ;
+
+// Stepper pins entered in sequence IN1-IN3-IN2-IN4 for proper step sequence
+Flap flap(pinIN1, pinIN3, pinIN2, pinIN4);
+Fan fan(pinFan, flap);
 
 void setup() {
   pinMode(pinFan, OUTPUT);
@@ -39,10 +40,6 @@ void setup() {
   digitalWrite(pinHeat1, LOW);
   digitalWrite(pinHeat2, LOW);
   
-  stepper.setMaxSpeed(1000.0);
-	stepper.setAcceleration(50.0);
-	stepper.setSpeed(200);
-
   setup_wifi();
   server.on("/", []() {
     server.send(200, "text/plain", "Hi! This is Homecom OTA server");
@@ -72,39 +69,32 @@ void callback(char* topic, byte* message, unsigned int length) {
     if(command == "off"){
       digitalWrite(pinHeat1, LOW);
       digitalWrite(pinHeat2, LOW);
-      fanShutdownStartTime = millis();
-      fanShutdownInProgress = true;
+      fan.shutdown();    
     }
-    else if (command == "low" || command == "on" ){
-      digitalWrite(pinFan, HIGH);
-      fanShutdownInProgress = false;
+    else if (command == "low" || command == "on" ){   
+      fan.on();
       digitalWrite(pinHeat1, HIGH);
       digitalWrite(pinHeat2, LOW);
     }
      else if (command == "high"){
-      digitalWrite(pinFan, HIGH);
-      fanShutdownInProgress = false;
+      fan.on();
       digitalWrite(pinHeat1, HIGH);
       digitalWrite(pinHeat2, HIGH);
     }
   }
   else if (String(topic) == "homecom/cool") {
     if(command == "off"){
-      if (fanShutdownInProgress) // will shutdown after 30s
-        return;
-      digitalWrite(pinFan, LOW);
+      fan.shutdown();
     }
     else if (command == "on"){
-      digitalWrite(pinFan, HIGH);
-      fanShutdownInProgress = false;
+      fan.on();
     }
   }
-  else if (String(topic) == "homecom/flap") {
-    stepper.enableOutputs();
-    if(command == "up")
-      stepper.move(25);
-    else
-      stepper.move(-25);
+  else if (String(topic) == "homecom/swing") {
+    if(command == "on")
+      flap.setSwinging(true); 
+    else if(command == "off")
+       flap.setSwinging(false);
   }
   else if (String(topic) == "homecom/beep") {
     if(command == "beep")
@@ -117,7 +107,7 @@ void reconnect() {
     if (mqttClient.connect("ESP32Client")) {
       mqttClient.subscribe("homecom/heat");
       mqttClient.subscribe("homecom/cool");
-      mqttClient.subscribe("homecom/flap");
+      mqttClient.subscribe("homecom/swing");
       mqttClient.subscribe("homecom/beep");
     } else {
       delay(5000);
@@ -125,7 +115,7 @@ void reconnect() {
   }
   String message("Connected ");
   message += WiFi.localIP().toString();
-  mqttClient.publish("homecom/debug", message.c_str());
+  mqttClient.publish("homecom/debug", message.c_str(), true);
 }
 
 void loop() {
@@ -137,24 +127,19 @@ void loop() {
   }
 
   mqttClient.loop();
+  fan.loop();
+  flap.loop();
 
-  stepper.run();
-  if(stepper.distanceToGo() == 0)
-    stepper.disableOutputs();
-
-  if(fanShutdownInProgress && millis() - fanShutdownStartTime > 30000){
-    digitalWrite(pinFan, LOW);
-    fanShutdownInProgress = false;
-  }
   long now = millis();
   if (now - lastStatusMsgTime > 5000) {
     lastStatusMsgTime = now;
     
     String status(digitalRead(pinFan) == HIGH ? "fan:on ": "fan:off ");
+    status += fan.fanShutdownInProgress ? ",shutdown " : " ";
     status += (digitalRead(pinHeat1) == HIGH ? "h1:on ": "h1:off ");
     status += (digitalRead(pinHeat2) == HIGH ? "h2:on ": "h2:off ");
+    status += "flap:"; status += flap.currentPosition();
   
     mqttClient.publish("homecom/status", status.c_str(), true);
   }
 }
-
