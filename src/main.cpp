@@ -7,19 +7,24 @@
 #include <AccelStepper.h>
 #include <fan.h>
 #include <flap.h>
+#include <et1616.h>
+
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 WiFiUDP udpClient;
 WebServer server(80);
 
 const uint8_t pinFan = D0;
-const uint8_t pinHeat1 = D1;
-const uint8_t pinHeat2 = D2;
-const uint8_t pinBuzz = D3;
-const uint8_t pinIN1 = D7;
-const uint8_t pinIN2 = D8;
-const uint8_t pinIN3 = D9;
-const uint8_t pinIN4 = D10;
+const uint8_t pinKeys = A1;
+const uint8_t pinIN4 = D2;
+const uint8_t pinIN3 = D3;
+const uint8_t pinIN2 = D4;
+const uint8_t pinIN1 = D5;
+const uint8_t pinHeat2 = D6;
+const uint8_t pinHeat1 = D7;
+const uint8_t pinSTB = D8;
+const uint8_t pinCLK = D9;
+const uint8_t pinDIN = D10;
 
 long lastStatusMsgTime = 0;
 
@@ -29,12 +34,15 @@ void setup_wifi() ;
 // Stepper pins entered in sequence IN1-IN3-IN2-IN4 for proper step sequence
 Flap flap(pinIN1, pinIN3, pinIN2, pinIN4);
 Fan fan(pinFan, flap);
+ET1616 display(pinCLK, pinDIN, pinSTB);
 
 void setup() {
   pinMode(pinFan, OUTPUT);
   pinMode(pinHeat1, OUTPUT);
   pinMode(pinHeat2, OUTPUT);
-  pinMode(pinBuzz, OUTPUT);
+  // pinMode(pinSTB, OUTPUT);
+  // pinMode(pinCLK, OUTPUT);
+  // pinMode(pinDIN, OUTPUT);
 
   digitalWrite(pinFan, LOW);
   digitalWrite(pinHeat1, LOW);
@@ -42,7 +50,7 @@ void setup() {
   
   setup_wifi();
   server.on("/", []() {
-    server.send(200, "text/plain", "Hi! This is Homecom OTA server");
+    server.send(200, "text/plain", "Hi! This is Homecom2 OTA server");
   });
  
   ElegantOTA.begin(&server);    
@@ -65,7 +73,7 @@ void callback(char* topic, byte* message, unsigned int length) {
   String command(message, length);
   command.toLowerCase();
 
-  if (String(topic) == "homecom/heat") {
+  if (String(topic) == "homecom2/heat") {
     if(command == "off"){
       digitalWrite(pinHeat1, LOW);
       digitalWrite(pinHeat2, LOW);
@@ -82,7 +90,7 @@ void callback(char* topic, byte* message, unsigned int length) {
       digitalWrite(pinHeat2, HIGH);
     }
   }
-  else if (String(topic) == "homecom/cool") {
+  else if (String(topic) == "homecom2/cool") {
     if(command == "off"){
       fan.shutdown();
     }
@@ -90,32 +98,35 @@ void callback(char* topic, byte* message, unsigned int length) {
       fan.on();
     }
   }
-  else if (String(topic) == "homecom/swing") {
+  else if (String(topic) == "homecom2/swing") {
     if(command == "on")
       flap.setSwinging(true); 
     else if(command == "off")
        flap.setSwinging(false);
   }
-  else if (String(topic) == "homecom/beep") {
-    if(command == "beep")
-     tone(pinBuzz,2000,250);
+  else if (String(topic) == "homecom2/display") {   
+    if(command == "test")
+      display.test();
+    else
+      display.setDisplayData(command.c_str());
   }
+   mqttClient.publish("homecom2/debug", command.c_str());
 }
 
 void reconnect() {
   while (!mqttClient.connected()) {
-    if (mqttClient.connect("ESP32Client")) {
-      mqttClient.subscribe("homecom/heat");
-      mqttClient.subscribe("homecom/cool");
-      mqttClient.subscribe("homecom/swing");
-      mqttClient.subscribe("homecom/beep");
+    if (mqttClient.connect("")) {
+      mqttClient.subscribe("homecom2/heat");
+      mqttClient.subscribe("homecom2/cool");
+      mqttClient.subscribe("homecom2/swing");
+      mqttClient.subscribe("homecom2/display");
     } else {
       delay(5000);
     }
   }
   String message("Connected ");
   message += WiFi.localIP().toString();
-  mqttClient.publish("homecom/debug", message.c_str(), true);
+  mqttClient.publish("homecom2/debug", message.c_str(), true);
 }
 
 void loop() {
@@ -130,6 +141,7 @@ void loop() {
   fan.loop();
   flap.loop();
 
+  
   long now = millis();
   if (now - lastStatusMsgTime > 5000) {
     lastStatusMsgTime = now;
@@ -140,6 +152,6 @@ void loop() {
     status += (digitalRead(pinHeat2) == HIGH ? "h2:on ": "h2:off ");
     status += "flap:"; status += flap.currentPosition();
   
-    mqttClient.publish("homecom/status", status.c_str(), true);
+    mqttClient.publish("homecom2/status", status.c_str(), true);
   }
 }
