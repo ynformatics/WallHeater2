@@ -8,10 +8,8 @@ public:
     uint8_t pin;
     Flap& _flap;
 
-    Fan(uint8_t pinFan, Flap& flap) : _flap(flap){
-        pin = pinFan;
-      
-    }
+    Fan(uint8_t pinFan, Flap& flap) : _flap(flap), pin(pinFan) {}
+    
     void on(){
         _flap.open();
         digitalWrite(pin, HIGH);

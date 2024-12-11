@@ -7,15 +7,15 @@
 #include <AccelStepper.h>
 #include <fan.h>
 #include <flap.h>
+#include <buttons.h>
 #include <et1616.h>
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
-WiFiUDP udpClient;
 WebServer server(80);
 
 const uint8_t pinFan = D0;
-const uint8_t pinKeys = A1;
+const uint8_t pinButtons = A1;
 const uint8_t pinIN4 = D2;
 const uint8_t pinIN3 = D3;
 const uint8_t pinIN2 = D4;
@@ -35,14 +35,12 @@ void setup_wifi() ;
 Flap flap(pinIN1, pinIN3, pinIN2, pinIN4);
 Fan fan(pinFan, flap);
 ET1616 display(pinCLK, pinDIN, pinSTB);
+Buttons buttons(pinButtons);
 
 void setup() {
   pinMode(pinFan, OUTPUT);
   pinMode(pinHeat1, OUTPUT);
   pinMode(pinHeat2, OUTPUT);
-  // pinMode(pinSTB, OUTPUT);
-  // pinMode(pinCLK, OUTPUT);
-  // pinMode(pinDIN, OUTPUT);
 
   digitalWrite(pinFan, LOW);
   digitalWrite(pinHeat1, LOW);
@@ -50,13 +48,15 @@ void setup() {
   
   setup_wifi();
   server.on("/", []() {
-    server.send(200, "text/plain", "Hi! This is Homecom2 OTA server");
+    server.send(200, "text/plain", "Hi! This is Homecom OTA server");
   });
  
   ElegantOTA.begin(&server);    
   server.begin();
   mqttClient.setServer(MQTT_SERVER_IP, MQTT_SERVER_PORT);
   mqttClient.setCallback(callback);
+
+  display.setHex("00000101"); // "--"
 }
 
 void setup_wifi() {
@@ -73,7 +73,7 @@ void callback(char* topic, byte* message, unsigned int length) {
   String command(message, length);
   command.toLowerCase();
 
-  if (String(topic) == "homecom2/heat") {
+  if (String(topic) == "homecom/heat") {
     if(command == "off"){
       digitalWrite(pinHeat1, LOW);
       digitalWrite(pinHeat2, LOW);
@@ -90,7 +90,7 @@ void callback(char* topic, byte* message, unsigned int length) {
       digitalWrite(pinHeat2, HIGH);
     }
   }
-  else if (String(topic) == "homecom2/cool") {
+  else if (String(topic) == "homecom/cool") {
     if(command == "off"){
       fan.shutdown();
     }
@@ -98,40 +98,53 @@ void callback(char* topic, byte* message, unsigned int length) {
       fan.on();
     }
   }
-  else if (String(topic) == "homecom2/swing") {
+  else if (String(topic) == "homecom/swing") {
     if(command == "on")
       flap.setSwinging(true); 
     else if(command == "off")
        flap.setSwinging(false);
   }
-  else if (String(topic) == "homecom2/display") {   
-    if(command == "test")
-      display.test();
-    else
-      display.setDisplayData(command.c_str());
+  else if (String(topic) == "homecom/display/hex") {   
+      display.setHex(command.c_str());
   }
-   mqttClient.publish("homecom2/debug", command.c_str());
+  else if (String(topic) == "homecom/display/number") {      
+      display.setNumber(command.toInt());
+  }
+  else if (String(topic) == "homecom/display/brightness") {      
+      display.setBrightness(command.toInt());
+  }
+  else if (String(topic) == "homecom/display/leds") {    
+      command.replace(",","");
+      display.setLeds(command.c_str());
+  }
+  mqttClient.publish("homecom/debug", command.c_str());
 }
 
 void reconnect() {
   while (!mqttClient.connected()) {
     if (mqttClient.connect("")) {
-      mqttClient.subscribe("homecom2/heat");
-      mqttClient.subscribe("homecom2/cool");
-      mqttClient.subscribe("homecom2/swing");
-      mqttClient.subscribe("homecom2/display");
+      mqttClient.subscribe("homecom/heat");
+      mqttClient.subscribe("homecom/cool");
+      mqttClient.subscribe("homecom/swing");
+      mqttClient.subscribe("homecom/display/hex");
+      mqttClient.subscribe("homecom/display/number");
+      mqttClient.subscribe("homecom/display/leds");
+      mqttClient.subscribe("homecom/display/brightness");
     } else {
       delay(5000);
     }
   }
   String message("Connected ");
   message += WiFi.localIP().toString();
-  mqttClient.publish("homecom2/debug", message.c_str(), true);
+  mqttClient.publish("homecom/debug", message.c_str(), true);
 }
+
+void buttonPressed(char c) { 
+  mqttClient.publish("homecom/button", (uint8_t*)&c, 1); 
+} 
 
 void loop() {
   server.handleClient();
-
   ElegantOTA.loop();
   if (!mqttClient.connected()) {
     reconnect();
@@ -140,18 +153,18 @@ void loop() {
   mqttClient.loop();
   fan.loop();
   flap.loop();
-
+  buttons.loop(buttonPressed);
   
   long now = millis();
   if (now - lastStatusMsgTime > 5000) {
     lastStatusMsgTime = now;
     
-    String status(digitalRead(pinFan) == HIGH ? "fan:on ": "fan:off ");
+    String status(digitalRead(pinFan) == HIGH ? "fan:on": "fan:off");
     status += fan.fanShutdownInProgress ? ",shutdown " : " ";
     status += (digitalRead(pinHeat1) == HIGH ? "h1:on ": "h1:off ");
     status += (digitalRead(pinHeat2) == HIGH ? "h2:on ": "h2:off ");
     status += "flap:"; status += flap.currentPosition();
   
-    mqttClient.publish("homecom2/status", status.c_str(), true);
+    mqttClient.publish("homecom/status", status.c_str());
   }
 }
