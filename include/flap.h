@@ -2,7 +2,8 @@
 #include <AccelStepper.h>
 class Flap : public AccelStepper{
 public:
-    const int openPosition = -400;
+    const int maxOpenPostion = -400;
+    int openPosition = -400;
     const int midPosition = -230;
     const int closePosition = 0;
     bool _swinging = false;
@@ -14,6 +15,10 @@ public:
         setMaxSpeed(defaultSpeed);
 	    setAcceleration(25.0);
         setCurrentPosition(closePosition);
+    }
+    void setOpenPosition(int openPosition){
+        if(openPosition > maxOpenPostion && openPosition < midPosition)
+            this->openPosition = openPosition;
     }
     void open(){
         moveTo(openPosition);

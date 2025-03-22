@@ -117,6 +117,9 @@ void callback(char* topic, byte* message, unsigned int length) {
       command.replace(",","");
       display.setLeds(command.c_str());
   }
+  else if (String(topic) == "homecom/config/openposition") {    
+      flap.setOpenPosition(command.toInt());
+  }
   mqttClient.publish("homecom/debug", command.c_str());
 }
 
@@ -130,6 +133,7 @@ void reconnect() {
       mqttClient.subscribe("homecom/display/number");
       mqttClient.subscribe("homecom/display/leds");
       mqttClient.subscribe("homecom/display/brightness");
+      mqttClient.subscribe("homecom/config/openposition");
     } else {
       delay(5000);
     }
